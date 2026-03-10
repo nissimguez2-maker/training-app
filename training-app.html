@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="Training"/>
+  <meta name="theme-color" content="#F5F5F7"/>
+  <title>Nissim · Training</title>
+
+  <!-- Icons for Add to Home Screen -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23E8001C'/><text y='.9em' font-size='72' x='50%' text-anchor='middle'>🏃</text></svg>"/>
+
+  <!-- React + ReactDOM -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- Recharts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.umd.min.js"></script>
+
+  <!-- Babel standalone for JSX transform -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+  <style>
+    *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    body{ margin:0; background:#F5F5F7; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif; }
+    input,textarea,select{ font-family:inherit; -webkit-appearance:none; }
+    button{ -webkit-appearance:none; }
+    /* Safe area for iPhone notch/home bar */
+    #root{ padding-bottom:env(safe-area-inset-bottom); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ─── Destructure from globals ───
+    const { useState, useEffect, useCallback, useMemo } = React;
+    const {
+      LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
+      ResponsiveContainer, CartesianGrid, Legend, ComposedChart,
+      Area, ReferenceLine
+    } = Recharts;
+
+    
+    // ─── COLORS ───
+    const C = {
+      red:"#E8001C", green:"#22C55E", orange:"#F59E0B",
+      blue:"#3B82F6", purple:"#8B5CF6", teal:"#14B8A6",
+      bg:"#F5F5F7", card:"#FFFFFF", text:"#1C1C1E",
+      muted:"#8E8E93", border:"#E5E7EB"
+    };
+    
+    // ─── HELPERS ───
+    const r25    = n => Math.round(n/2.5)*2.5;
+    const ds     = (base,d) => d==="easy"?r25(base*0.8):d==="hard"?r25(base*1.1):base;
+    const todayStr = () => new Date().toISOString().slice(0,10);
+    const fmtDate  = s => new Date(s+"T12:00").toLocaleDateString("en-US",{month:"short",day:"numeric"});
+    const fmtDay   = s => new Date(s+"T12:00").toLocaleDateString("en-US",{weekday:"short"});
+    const fmtFull  = s => new Date(s+"T12:00").toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"});
+    
+    function weekStart(dateStr) {
+      const d=new Date(dateStr+"T12:00"),day=d.getDay();
+      d.setDate(d.getDate()-(day===0?6:day-1));
+      return d.toISOString().slice(0,10);
+    }
+    function last7() {
+      return Array.from({length:7},(_,i)=>{
+        const d=new Date(); d.setDate(d.getDate()-6+i);
+        return d.toISOString().slice(0,10);
+      });
+    }
+    function prevMonth() {
+      const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
+      return d.toISOString().slice(0,7);
+    }
+    function linearRegression(pts) {
+      const n=pts.length; if(n<2) return {slope:0,intercept:pts[0]?.y||0};
+      const sx=pts.reduce((a,p)=>a+p.x,0), sy=pts.reduce((a,p)=>a+p.y,0);
+      const sxy=pts.reduce((a,p)=>a+p.x*p.y,0), sx2=pts.reduce((a,p)=>a+p.x*p.x,0);
+      const den=n*sx2-sx*sx; if(den===0) return {slope:0,intercept:sy/n};
+      const slope=(n*sxy-sx*sy)/den, intercept=(sy-slope*sx)/n;
+      return {slope,intercept};
+    }
+    
+    // ─── HISTORICAL DATA (Thursday-adjusted) ───
+    const HISTORICAL = [
+      {date:"2025-10-23",weight:98.0,dose:"2.5"},
+      {date:"2025-10-30",weight:96.0,dose:"2.5"},
+      {date:"2025-11-06",weight:94.0,dose:"2.5"},
+      {date:"2025-11-13",weight:93.0,dose:"2.5"},
+      {date:"2025-11-20",weight:91.5,dose:"5"},
+      {date:"2025-11-27",weight:90.2,dose:"5"},
+      {date:"2025-12-04",weight:89.1,dose:"5"},
+      {date:"2025-12-11",weight:87.8,dose:"7.5"},
+      {date:"2025-12-18",weight:87.0,dose:"7.5"},
+      {date:"2025-12-25",weight:86.2,dose:"5"},
+      {date:"2026-01-01",weight:85.6,dose:"5"},
+      {date:"2026-01-08",weight:85.0,dose:"5"},
+      {date:"2026-01-16",weight:84.2,dose:"5"},
+      {date:"2026-01-22",weight:83.1,dose:"5"},
+      {date:"2026-02-05",weight:82.8,dose:"5"},
+      {date:"2026-02-19",weight:82.5,dose:"5"},
+      {date:"2026-02-26",weight:81.7,dose:"5"},
+      {date:"2026-03-05",weight:80.2,dose:"5"},
+    ];
+    
+    // ─── MODULES ───
+    const MODS = {
+      gym:{name:"Gym",icon:"🏋️",color:"#8B5CF6",dur:30,
+        exs:[
+          {id:"chest_press", name:"Chest Press",    sub:"Machine",          unit:"kg",base:20,sets:"3×12"},
+          {id:"ab_machine",  name:"Ab Machine",     sub:"/Crunch",          unit:"kg",base:15,sets:"3×15"},
+          {id:"bicep_curl",  name:"Bicep Curl",     sub:"Cable",            unit:"kg",base:8, sets:"3×12"},
+          {id:"tricep_down", name:"Tricep Pushdown",sub:"Cable",            unit:"kg",base:10,sets:"3×12"},
+          {id:"hip_abductor",name:"Hip Abductor ⭐",sub:"Machine",          unit:"kg",base:20,sets:"3×15"},
+        ],
+        pf:(diff,ex)=>[{key:"weight",label:"Weight Used",unit:"kg",def:ds(ex.base,diff)}]
+      },
+      swimming:{name:"Swimming",icon:"🏊",color:"#3B82F6",dur:30,
+        swimSets:{
+          warm_up:  {easy:{reps:2,dist:25},normal:{reps:2,dist:25},hard:{reps:2,dist:25}},
+          main_set: {easy:{reps:5,dist:50},normal:{reps:6,dist:50},hard:{reps:8,dist:50}},
+          backstroke:{easy:{reps:3,dist:25},normal:{reps:4,dist:25},hard:{reps:5,dist:25}},
+        },
+        exs:[
+          {id:"warm_up",   name:"Warm-up",   sub:"Freestyle / Backstroke", unit:"m", base:50},
+          {id:"main_set",  name:"Main Set",  sub:"Freestyle",              unit:"m", base:300},
+          {id:"backstroke",name:"Backstroke",sub:"Full stroke, no kick",   unit:"m", base:100},
+        ],
+        pf:(diff)=>[{key:"distance",label:"Total Meters",unit:"m",def:diff==="easy"?375:diff==="hard"?575:450}]
+      },
+      treadmill:{name:"Treadmill",icon:"🚶",color:"#22C55E",dur:30,
+        exs:[
+          {id:"warmup",   name:"Warm-up",   sub:"", unit:"km/h", base:5.0},
+          {id:"block1",   name:"Block 1",   sub:"", unit:"km/h", base:6.0},
+          {id:"block2",   name:"Block 2",   sub:"", unit:"km/h", base:6.5},
+          {id:"cooldown", name:"Cool-down", sub:"", unit:"km/h", base:4.5},
+        ],
+        intervals:{
+          easy:  [{name:"Warm-up",mins:5,kmh:2.5},{name:"Walk",mins:23,kmh:3.0},{name:"Cool-down",mins:2,kmh:2.0}],
+          normal:[{name:"Warm-up",mins:5,kmh:2.5},{name:"Walk",mins:10,kmh:3.2},{name:"Push",mins:2,kmh:3.8},{name:"Walk",mins:11,kmh:3.2},{name:"Cool-down",mins:2,kmh:2.0}],
+          hard:  [{name:"Warm-up",mins:5,kmh:2.5},{name:"Walk",mins:8,kmh:3.5},{name:"Push",mins:2,kmh:4.0},{name:"Walk",mins:6,kmh:3.5},{name:"Push",mins:2,kmh:4.0},{name:"Walk",mins:5,kmh:3.5},{name:"Cool-down",mins:2,kmh:2.0}],
+        },
+        pf:(diff)=>[
+          {key:"speed",   label:"Avg Speed",unit:"km/h",def:diff==="easy"?2.9:diff==="hard"?3.6:3.2},
+          {key:"distance",label:"Distance", unit:"km",  def:diff==="easy"?1.5:diff==="hard"?1.8:1.6}
+        ]
+      },
+      ebike:{name:"E-Bike",icon:"🚴",color:"#F59E0B",dur:30,
+        exs:[{id:"ride",name:"Ride",sub:"",unit:"km",base:7,sets:"30 min"}],
+        intervals:{
+          easy:  [{name:"Warm-up", mins:5, kmh:10, lvl:2},{name:"Ride",    mins:23,kmh:13, lvl:3},{name:"Cool-down",mins:2, kmh:8,  lvl:1}],
+          normal:[{name:"Warm-up", mins:5, kmh:10, lvl:2},{name:"Block 1", mins:10,kmh:15, lvl:4},{name:"Block 2",  mins:10,kmh:17, lvl:5},{name:"Cool-down",mins:5, kmh:8, lvl:2}],
+          hard:  [{name:"Warm-up", mins:5, kmh:12, lvl:3},{name:"Block 1", mins:8, kmh:16, lvl:5},{name:"Push",    mins:4, kmh:20, lvl:7},{name:"Block 2",  mins:8,kmh:16,lvl:5},{name:"Cool-down",mins:5,kmh:8,lvl:2}],
+        },
+        pf:(diff)=>[
+          {key:"avgSpeed",label:"Avg Speed",unit:"km/h",def:diff==="easy"?12:diff==="hard"?16:14},
+          {key:"distance",label:"Distance", unit:"km",  def:diff==="easy"?5.8:diff==="hard"?7.8:7.0}
+        ]
+      }
+    };
+    const DIFFS = {
+      easy:  {label:"Easy",  pct:80, color:"#22C55E",bg:"#DCFCE7"},
+      normal:{label:"Normal",pct:100,color:"#3B82F6",bg:"#DBEAFE"},
+      hard:  {label:"Hard",  pct:110,color:"#E8001C",bg:"#FEE2E2"}
+    };
+    
+    // ─── WHOOP (all 3 signals) ───
+    function whoopInfo(rec,hrv,strain) {
+      const r=parseInt(rec);
+      if(!r||isNaN(r)) return {color:C.muted,bg:"#F5F5F7",suggest:"normal",emoji:"⚪",label:"—",note:""};
+      let suggest=r<=33?"easy":r<=66?"normal":"hard";
+      const recColor=r<=33?C.red:r<=66?C.orange:C.green;
+      const recEmoji=r<=33?"🔴":r<=66?"🟡":"🟢";
+      const recLabel=r<=33?"Red":r<=66?"Yellow":"Green";
+      let note="";
+      const h=parseInt(hrv);
+      if(!isNaN(h)&&h>0) {
+        if(h<45&&suggest==="hard")  {suggest="normal";note="HRV low — dialed back from Hard";}
+        if(h<35&&suggest==="normal"){suggest="easy";  note="HRV very low — dialed back to Easy";}
+      }
+      const s=parseFloat(strain);
+      if(!isNaN(s)&&s>0) {
+        if(s>15&&suggest==="hard")  {suggest="normal";note=note||"High strain yesterday — capped at Normal";}
+        if(s>18&&suggest==="normal"){suggest="easy";  note=note||"Very high strain — recommending Easy";}
+      }
+      return {color:recColor,bg:r<=33?"#FEE2E2":r<=66?"#FEF3C7":"#DCFCE7",suggest,emoji:recEmoji,label:recLabel,note};
+    }
+    
+    // ─── SCORING ───
+    function calcScores(diff,exSt,todayPerfs) {
+      const exVals=Object.values(exSt);
+      const done=exVals.filter(v=>v==="done").length, total=exVals.length;
+      const completionScore=total>0?Math.round((done/total)*100):0;
+      const diffBase={easy:60,normal:80,hard:100};
+      const effortScore=Math.min(100,Math.round(diffBase[diff]*(done/Math.max(total,1))*1.1));
+      const ratios=[];
+      todayPerfs.forEach(p=>{
+        const mod=MODS[p.mid], ex=mod?.exs.find(e=>e.id===p.eid);
+        const fields=p.mid==="gym"?mod?.pf(diff,ex):mod?.pf(diff);
+        if(!fields) return;
+        fields.forEach(f=>{ if(p[f.key]>0&&f.def>0) ratios.push(Math.min(p[f.key]/f.def,1.2)); });
+      });
+      const performanceScore=ratios.length>0?Math.min(100,Math.round((ratios.reduce((a,b)=>a+b,0)/ratios.length)*100)):completionScore;
+      return {completionScore,effortScore,performanceScore,finalScore:Math.round((completionScore+effortScore+performanceScore)/3)};
+    }
+    
+    // ─── AI ───
+    const SYS=`You're Nissim's personal coach — he's 26, training at Hashmonaim Country Club in Tel Aviv. He's on a medically supervised weight loss program (Tirzepatide/Mounjaro 5mg) and has come a long way — down nearly 18kg already. He has a history of knee dislocations and mild scoliosis, so you're always mindful of that. His modules are Gym, Swimming, Treadmill, E-Bike — 30 min each. Talk to him like a real coach would — direct, warm, personal. No bullet points, no lists. Just speak to him naturally. Keep it short. Training guidance only, never medical advice.`;
+    async function callAI(prompt) {
+      try {
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:SYS,messages:[{role:"user",content:prompt}]})
+        });
+        const data=await res.json();
+        return data.content?.find(b=>b.type==="text")?.text||"Could not load response.";
+      } catch(e) { return "AI unavailable right now."; }
+    }
+    
+    // ─── STORAGE ───
+    function useStore(key,init) {
+      const [v,setV]=useState(()=>{
+        try{ const s=localStorage.getItem(key); return s?JSON.parse(s):init; }catch{ return init; }
+      });
+      const save=useCallback(upd=>{
+        setV(prev=>{
+          const next=typeof upd==="function"?upd(prev):upd;
+          try{ localStorage.setItem(key,JSON.stringify(next)); }catch{}
+          return next;
+        });
+      },[key]);
+      return [v,save];
+    }
+    
+    // ─── SHARED UI ───
+    const Overlay=({children,scroll})=>(
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+        <div style={{background:C.card,borderRadius:"24px 24px 0 0",padding:"28px 24px",width:"100%",maxWidth:430,boxSizing:"border-box",maxHeight:"88vh",overflowY:scroll?"auto":"visible"}}>
+          {children}
+        </div>
+      </div>
+    );
+    const Row=({children,style})=><div style={{display:"flex",gap:10,...style}}>{children}</div>;
+    const SolidBtn=({label,onClick,bg,full,disabled})=>(
+      <button onClick={onClick} disabled={!!disabled}
+        style={{flex:full?undefined:1,width:full?"100%":undefined,padding:"13px",borderRadius:14,border:"none",
+          background:disabled?C.border:(bg||C.red),color:"#fff",fontWeight:700,fontSize:15,cursor:disabled?"not-allowed":"pointer"}}>
+        {label}
+      </button>
+    );
+    const GhostBtn=({label,onClick})=>(
+      <button onClick={onClick} style={{flex:1,padding:"13px",borderRadius:14,border:`1.5px solid ${C.border}`,background:"none",color:C.muted,fontWeight:600,fontSize:14,cursor:"pointer"}}>{label}</button>
+    );
+    const ChartCard=({title,children,empty})=>(
+      <div style={{background:C.card,borderRadius:18,padding:"18px 16px",marginBottom:14}}>
+        <p style={{fontWeight:700,fontSize:15,color:C.text,margin:0}}>{title}</p>
+        {empty?<p style={{color:C.muted,fontSize:13,marginTop:8}}>Start training to see data here.</p>:<div style={{marginTop:14}}>{children}</div>}
+      </div>
+    );
+    const StatPill=({label,value,color,sub})=>(
+      <div style={{flex:1,background:C.card,borderRadius:16,padding:"14px 10px",textAlign:"center"}}>
+        <p style={{fontSize:20,fontWeight:800,color:color||C.text,margin:0,lineHeight:1}}>{value}</p>
+        {sub&&<p style={{fontSize:10,color:color||C.muted,margin:"2px 0 0",fontWeight:600}}>{sub}</p>}
+        <p style={{fontSize:10,color:C.muted,marginTop:2}}>{label}</p>
+      </div>
+    );
+    const ScoreBar=({score,color})=>(
+      <div style={{background:C.bg,borderRadius:100,height:8,overflow:"hidden"}}>
+        <div style={{width:`${score}%`,height:"100%",background:color,borderRadius:100}}/>
+      </div>
+    );
+    
+    // ─── SCORE SCREEN ───
+    function ScoreScreen({modal,onClose}) {
+      const {scores,aiDebrief,aiLoading,prs}=modal;
+      const fc=scores.finalScore>=80?C.green:scores.finalScore>=55?C.orange:C.red;
+      const domains=[
+        {key:"completionScore",label:"💪 Completion", desc:"Exercises completed",      color:C.green},
+        {key:"effortScore",    label:"🔥 Effort",     desc:"Difficulty × completion",  color:C.orange},
+        {key:"performanceScore",label:"🎯 Performance",desc:"Logged numbers vs target", color:C.blue},
+      ];
+      return(
+        <div>
+          <p style={{fontWeight:800,fontSize:22,textAlign:"center",margin:"0 0 4px"}}>Session Complete 🎉</p>
+          <p style={{color:C.muted,fontSize:13,textAlign:"center",marginBottom:20}}>Here's how you did</p>
+          {prs?.length>0&&(
+            <div style={{background:"#FFF7ED",border:`1.5px solid ${C.orange}`,borderRadius:14,padding:"11px 16px",marginBottom:18,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:22}}>🏅</span>
+              <div><p style={{fontWeight:700,fontSize:13,color:C.orange,margin:0}}>New PR{prs.length>1?"s":""}!</p>
+              <p style={{fontSize:12,color:C.muted,margin:0}}>{prs.join(", ")}</p></div>
+            </div>
+          )}
+          {domains.map(d=>(
+            <div key={d.key} style={{marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:7}}>
+                <div><span style={{fontWeight:700,fontSize:14}}>{d.label}</span>
+                <span style={{color:C.muted,fontSize:11,marginLeft:6}}>{d.desc}</span></div>
+                <span style={{fontWeight:800,fontSize:17,color:d.color}}>{scores[d.key]}</span>
+              </div>
+              <ScoreBar score={scores[d.key]} color={d.color}/>
+            </div>
+          ))}
+          <div style={{background:C.text,borderRadius:18,padding:"20px",margin:"20px 0",textAlign:"center"}}>
+            <p style={{fontSize:12,color:"rgba(255,255,255,0.45)",textTransform:"uppercase",letterSpacing:0.8,margin:"0 0 4px"}}>Final Score</p>
+            <p style={{fontSize:56,fontWeight:900,color:fc,margin:"0 0 4px",lineHeight:1}}>{scores.finalScore}</p>
+            <p style={{fontSize:12,color:"rgba(255,255,255,0.35)",margin:0}}>out of 100</p>
+          </div>
+          <div style={{background:C.bg,borderRadius:14,padding:"16px",marginBottom:20}}>
+            <p style={{fontWeight:700,fontSize:13,margin:"0 0 8px"}}>🤖 Coach Debrief</p>
+            {aiLoading?<p style={{color:C.muted,fontSize:13,margin:0}}>Writing your debrief...</p>
+              :<p style={{color:C.text,fontSize:14,lineHeight:1.65,margin:0}}>{aiDebrief}</p>}
+          </div>
+          <SolidBtn label="Done ✓" onClick={onClose} full/>
+        </div>
+      );
+    }
+    
+    // ─── MAIN APP ───
+    function App() {
+      const [tab,setTab]=useState("today");
+      const [sessions, setSessions] = useStore("nv4-sessions",[]);
+      const [whoopData,setWhoopData]= useStore("nv4-whoop",[]);
+      const [perfs,    setPerfs]    = useStore("nv4-perfs",[]);
+      const [weightLog,setWeightLog]= useStore("nv6-wt", HISTORICAL);
+    
+      // Today
+      const [step,         setStep]         = useState("whoop");
+      const [whoopIn,      setWhoopIn]      = useState({r:"",h:"",s:"",sl:""});
+      const [feeling,      setFeeling]      = useState("");
+      const [food,         setFood]         = useState("");
+      const [fullness,     setFullness]     = useState("");
+      const [aiRec,        setAiRec]        = useState(null);
+      const [aiRecLoading, setAiRecLoading] = useState(false);
+      const [aiRecMods,    setAiRecMods]    = useState([]);
+      const [aiRecDiff,    setAiRecDiff]    = useState(null);
+      const [selMods,      setSelMods]      = useState([]);
+      const [diff,         setDiff]         = useState("normal");
+      const [exSt,         setExSt]         = useState({});
+      const [todayPerfs,   setTodayPerfs]   = useState([]);
+      const [newPRs,       setNewPRs]       = useState([]);
+      const [perfModal,    setPerfModal]    = useState(null);
+      const [tooHardQ,     setTooHardQ]     = useState(null);
+      const [scoreModal,   setScoreModal]   = useState(null);
+      const [delConfirm,   setDelConfirm]   = useState(null);
+      const [wtModal,      setWtModal]      = useState(false);
+      const [wtIn,         setWtIn]         = useState({w:"",dose:""});
+    
+      const todayDone=useMemo(()=>sessions.some(s=>s.date===todayStr()&&s.submitted),[sessions]);
+      const isThur=new Date().getDay()===4;
+    
+      // Last week weight change for AI
+      const lastWeekLossPct = useMemo(()=>{
+        const sorted=[...weightLog].sort((a,b)=>a.date.localeCompare(b.date));
+        if(sorted.length<2) return null;
+        const last=sorted[sorted.length-1], prev=sorted[sorted.length-2];
+        return ((prev.weight-last.weight)/prev.weight*100).toFixed(2);
+      },[weightLog]);
+    
+      useEffect(()=>{
+        if(todayDone) setStep("done");
+        else setStep(s=>s==="done"?"whoop":s);
+      },[todayDone]);
+    
+      useEffect(()=>{
+        setExSt(prev=>{
+          const n={};
+          selMods.forEach(mid=>{
+            if(mid==="treadmill") {
+              n["treadmill_walk"]=prev["treadmill_walk"]||"none";
+            } else if(mid==="ebike") {
+              n["ebike_ride"]=prev["ebike_ride"]||"none";
+            } else {
+              MODS[mid].exs.forEach(ex=>{ const k=`${mid}_${ex.id}`; n[k]=prev[k]||"none"; });
+            }
+          });
+          return n;
+        });
+      },[selMods]);
+    
+      async function submitWhoop() {
+        const rec=parseInt(whoopIn.r), wi=whoopInfo(rec,whoopIn.h,whoopIn.s);
+        if(!isNaN(rec)&&rec>0) {
+          setDiff(wi.suggest);
+          setWhoopData(p=>[...p.filter(w=>w.date!==todayStr()),{date:todayStr(),recovery:rec,hrv:parseInt(whoopIn.h)||null,strain:parseFloat(whoopIn.s)||null,sleep:parseInt(whoopIn.sl)||null}]);
+        }
+        if(feeling.trim().length>3) {
+          setAiRecLoading(true); setStep("ai_rec");
+          const lastSess=sessions.filter(s=>s.submitted).slice(-1)[0];
+          const daysSince=lastSess?Math.round((new Date()-new Date(lastSess.date+"T12:00"))/86400000):"unknown";
+          const wLoss=lastWeekLossPct?`Last week weight change: ${lastWeekLossPct}% body weight loss`:"No recent weight data";
+          const prompt=`Nissim just checked in. Here's the full picture:
+    Feeling: "${feeling||"not mentioned"}"
+    Ate today: "${food||"not mentioned"}" · Fullness: ${fullness||"not given"}/10
+    Whoop: Recovery ${rec||"?"}% · HRV ${whoopIn.h||"?"}ms · Strain ${whoopIn.s||"?"} · Sleep ${whoopIn.sl||"?"}%
+    Last session: ${lastSess?lastSess.modules?.map(m=>MODS[m]?.name).join("+")+" ("+lastSess.difficulty+")":"none"}
+    Days since last session: ${daysSince} · ${wLoss}
+    
+    Always pick EXACTLY 2 modules (never 1, never 3) from: Gym, Swimming, Treadmill, E-Bike. Pick the 2 best for his state today. State one difficulty level — use ONLY the words Easy, Normal, or Hard. One sentence, direct, like a coach texting.`;
+          const res=await callAI(prompt);
+          // Parse which modules AI recommended
+          const modMap={gym:"gym",swimming:"swimming",treadmill:"treadmill","e-bike":"ebike","ebike":"ebike","bike":"ebike"};
+          const mentioned=Object.entries(modMap).filter(([k])=>res.toLowerCase().includes(k)).map(([,v])=>v);
+          const unique=[...new Set(mentioned)].slice(0,2);
+          setAiRecMods(unique);
+          // Parse difficulty
+          const diffMatch=res.toLowerCase().match(/\b(easy|normal|hard)\b/);
+          if(diffMatch) { setAiRecDiff(diffMatch[1]); setDiff(diffMatch[1]); }
+          setAiRec(res); setAiRecLoading(false);
+        } else { setStep("mods"); }
+      }
+    
+      function tapEx(mid,eid) {
+        const k=`${mid}_${eid}`,cur=exSt[k]||"none";
+        if(cur==="none") {
+          setExSt(p=>({...p,[k]:"done"}));
+          const mod=MODS[mid],ex=mod.exs.find(e=>e.id===eid);
+          // Swimming: only show perf popup when last exercise (kickboard) is done
+          if(mid==="swimming") {
+            if(eid==="backstroke") {
+              const swimSets=mod.swimSets;
+              const total=["warm_up","main_set","backstroke"].reduce((s,id)=>{const ss=swimSets[id][diff];return s+ss.reps*ss.dist;},0);
+              const fields=[{key:"distance",label:"Total Meters",unit:"m",def:total}];
+              setPerfModal({mid,eid:"swimming_session",exName:"Swimming Session",fields,vals:{distance:String(total)}});
+            }
+            return;
+          }
+          const fields=mid==="gym"?mod.pf(diff,ex):mod.pf(diff);
+          if(fields?.length>0) setPerfModal({mid,eid,exName:ex.name,fields,vals:Object.fromEntries(fields.map(f=>[f.key,String(f.def)]))});
+        } else if(cur==="done") { setTooHardQ({mid,eid}); }
+        else { setExSt(p=>({...p,[k]:"none"})); }
+      }
+    
+      function savePerfModal(skip) {
+        if(!skip&&perfModal) {
+          const entry={date:todayStr(),mid:perfModal.mid,eid:perfModal.eid,exName:perfModal.exName,diff};
+          perfModal.fields.forEach(f=>{ entry[f.key]=parseFloat(perfModal.vals[f.key])||0; });
+          if(entry.weight>0) {
+            const prev=perfs.filter(p=>p.mid===perfModal.mid&&p.eid===perfModal.eid&&p.weight>0).reduce((mx,p)=>p.weight>mx?p.weight:mx,0);
+            if(entry.weight>prev) setNewPRs(p=>[...p,perfModal.exName.replace(" ⭐","")]);
+          }
+          setPerfs(p=>[...p,entry]); setTodayPerfs(p=>[...p,entry]);
+        }
+        setPerfModal(null);
+      }
+    
+      function confirmTooHard() {
+        setExSt(p=>({...p,[`${tooHardQ.mid}_${tooHardQ.eid}`]:"hard"}));
+        setTooHardQ(null);
+      }
+    
+      async function submitSession() {
+        const scores=calcScores(diff,exSt,todayPerfs);
+        setSessions(p=>[...p,{id:Date.now(),date:todayStr(),modules:selMods,difficulty:diff,
+          whoop:{recovery:parseInt(whoopIn.r)||null,hrv:parseInt(whoopIn.h)||null,strain:parseFloat(whoopIn.s)||null},
+          exercises:exSt,submitted:true,scores}]);
+        setScoreModal({scores,aiDebrief:null,aiLoading:true,prs:[...newPRs]});
+        const done=Object.values(exSt).filter(v=>v==="done").length;
+        const hard=Object.values(exSt).filter(v=>v==="hard").length;
+        const tot=Object.values(exSt).length;
+        const pSum=todayPerfs.map(p=>`${p.exName}: ${p.weight?p.weight+"kg":""} ${p.distance?p.distance+"km":""} ${p.speed?p.speed+"km/h":""}`).join("; ")||"none";
+        const nothingDone = done === 0 && tot > 0;
+        const prompt=`Nissim just submitted a session. Here's the raw data:
+    Modules: ${selMods.map(m=>MODS[m]?.name).join(" + ")} at ${diff} difficulty
+    Exercises completed: ${done}/${tot}${hard>0?" ("+hard+" marked too hard)":""}
+    Performance logged: ${pSum||"nothing"}
+    Final score: ${scores.finalScore}/100 (Completion: ${scores.completionScore}, Effort: ${scores.effortScore}, Performance: ${scores.performanceScore})
+    Whoop going in: ${whoopIn.r||"?"}% recovery · HRV ${whoopIn.h||"?"}ms
+    New PRs: ${newPRs.length>0?newPRs.join(", "):"none"}
+    ${nothingDone?"NOTE: He selected modules but completed ZERO exercises. Do not congratulate. Be honest and direct.":""}
+    
+    Be his real coach. 2-3 sentences. No fluff, no flattery unless genuinely earned. If he did nothing or very little, say so directly — that's what coaches are for. If he did well, acknowledge it briefly and push for more. End with one concrete action for next session.`;
+        const res=await callAI(prompt);
+        setScoreModal(prev=>prev?{...prev,aiDebrief:res,aiLoading:false}:null);
+      }
+    
+      function closeScoreModal() { setScoreModal(null); setStep("done"); setTodayPerfs([]); setNewPRs([]); }
+      function deleteSession(id) { setSessions(p=>p.filter(s=>s.id!==id)); setDelConfirm(null); }
+    
+      function logWeight() {
+        const w=parseFloat(wtIn.w), dose=wtIn.dose.trim();
+        if(!isNaN(w)&&w>0&&dose) {
+          setWeightLog(p=>[...p.filter(x=>x.date!==todayStr()),{date:todayStr(),weight:w,dose}]);
+          setWtModal(false); setWtIn({w:"",dose:""});
+        }
+      }
+    
+      const doneN=Object.values(exSt).filter(v=>v==="done").length;
+      const totalN=Object.values(exSt).length;
+    
+      return(
+        <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif",background:C.bg,minHeight:"100vh",maxWidth:430,margin:"0 auto"}}>
+          <div style={{paddingBottom:80}}>
+            {tab==="today"   && <TodayView step={step} setStep={setStep} whoopIn={whoopIn} setWhoopIn={setWhoopIn} feeling={feeling} setFeeling={setFeeling} food={food} setFood={setFood} fullness={fullness} setFullness={setFullness} submitWhoop={submitWhoop} aiRec={aiRec} aiRecLoading={aiRecLoading} aiRecMods={aiRecMods} aiRecDiff={aiRecDiff} selMods={selMods} setSelMods={setSelMods} diff={diff} setDiff={setDiff} exSt={exSt} tapEx={tapEx} doneN={doneN} totalN={totalN} onSubmit={submitSession} onWeightLog={()=>setWtModal(true)} isThur={isThur}/>}
+            {tab==="week"    && <WeekView sessions={sessions} onDelete={id=>setDelConfirm(id)}/>}
+            {tab==="monthly" && <MonthlyView sessions={sessions} perfs={perfs}/>}
+            {tab==="weight"  && <WeightTab weightLog={weightLog} onLog={()=>setWtModal(true)} isThur={isThur}/>}
+          </div>
+    
+          <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"rgba(255,255,255,0.96)",backdropFilter:"blur(12px)",borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+            {[["today","🏃","Today"],["week","📅","Week"],["monthly","📊","Stats"],["weight","⚖️","Weight"]].map(([id,ico,lbl])=>(
+              <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"10px 0 14px",background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <span style={{fontSize:20}}>{ico}</span>
+                <span style={{fontSize:9,fontWeight:tab===id?700:400,color:tab===id?C.red:C.muted}}>{lbl}</span>
+              </button>
+            ))}
+          </nav>
+    
+          {tooHardQ&&<Overlay>
+            <p style={{fontWeight:800,fontSize:17,marginBottom:6}}>Mark as Too Hard? ⊘</p>
+            <p style={{color:C.muted,fontSize:13,marginBottom:20}}>Flags it in orange. Try lighter next session.</p>
+            <Row><GhostBtn label="Cancel" onClick={()=>setTooHardQ(null)}/><SolidBtn label="⊘ Too Hard" onClick={confirmTooHard} bg={C.orange}/></Row>
+          </Overlay>}
+    
+          {perfModal&&<Overlay>
+            <p style={{fontWeight:800,fontSize:16,marginBottom:2}}>📝 Log Performance</p>
+            <p style={{color:C.muted,fontSize:13,marginBottom:4}}>{perfModal.exName}</p>
+            <p style={{color:C.muted,fontSize:11,marginBottom:16}}>Edit values or tap Skip.</p>
+            {perfModal.fields.map(f=>(
+              <div key={f.key} style={{marginBottom:12}}>
+                <label style={{fontSize:12,fontWeight:600,color:C.muted,display:"block",marginBottom:5}}>{f.label} ({f.unit})</label>
+                <input type="number" step="0.5" value={perfModal.vals[f.key]}
+                  onChange={e=>setPerfModal(pm=>({...pm,vals:{...pm.vals,[f.key]:e.target.value}}))}
+                  style={{width:"100%",padding:"10px 14px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:17,outline:"none",boxSizing:"border-box"}}/>
+              </div>
+            ))}
+            <Row style={{marginTop:8}}><GhostBtn label="Skip" onClick={()=>savePerfModal(true)}/><SolidBtn label="Save ✓" onClick={()=>savePerfModal(false)}/></Row>
+          </Overlay>}
+    
+          {scoreModal&&<Overlay scroll><ScoreScreen modal={scoreModal} onClose={closeScoreModal}/></Overlay>}
+    
+          {delConfirm&&<Overlay>
+            <p style={{fontWeight:800,fontSize:17,marginBottom:6}}>🗑️ Delete Session?</p>
+            <p style={{color:C.muted,fontSize:13,marginBottom:20}}>This will be permanently removed.</p>
+            <Row><GhostBtn label="Cancel" onClick={()=>setDelConfirm(null)}/><SolidBtn label="Delete" onClick={()=>deleteSession(delConfirm)} bg={C.red}/></Row>
+          </Overlay>}
+    
+          {wtModal&&<Overlay>
+            <p style={{fontWeight:800,fontSize:17,marginBottom:4}}>⚖️ Thursday Weigh-in</p>
+            <p style={{color:C.muted,fontSize:13,marginBottom:16}}>Log your weekly weight + dose</p>
+            <input type="number" step="0.1" placeholder="Weight (kg)" value={wtIn.w}
+              onChange={e=>setWtIn(p=>({...p,w:e.target.value}))}
+              style={{width:"100%",padding:"14px",borderRadius:12,border:`1.5px solid ${C.border}`,fontSize:20,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <select value={wtIn.dose} onChange={e=>setWtIn(p=>({...p,dose:e.target.value}))}
+              style={{width:"100%",padding:"13px",borderRadius:12,border:`1.5px solid ${C.border}`,fontSize:15,outline:"none",boxSizing:"border-box",background:C.card,color:C.text,marginBottom:16}}>
+              <option value="">Select Mounjaro dose...</option>
+              {["2.5","5","7.5","10","12.5","15"].map(d=><option key={d} value={d}>{d} mg</option>)}
+            </select>
+            <Row><GhostBtn label="Cancel" onClick={()=>setWtModal(false)}/><SolidBtn label="Save" onClick={logWeight} disabled={!wtIn.w||!wtIn.dose}/></Row>
+          </Overlay>}
+        </div>
+      );
+    }
+    
+    // ─── TODAY VIEW ───
+    function TodayView({step,setStep,whoopIn,setWhoopIn,feeling,setFeeling,food,setFood,fullness,setFullness,submitWhoop,aiRec,aiRecLoading,aiRecMods,aiRecDiff,selMods,setSelMods,diff,setDiff,exSt,tapEx,doneN,totalN,onSubmit,onWeightLog,isThur}) {
+      const today=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+      const rec=parseInt(whoopIn.r), wi=whoopInfo(rec,whoopIn.h,whoopIn.s);
+    
+      if(step==="done") return(
+        <div style={{padding:20}}>
+          <p style={{fontSize:28,fontWeight:800,marginBottom:4}}>Today</p>
+          <p style={{color:C.muted,fontSize:13,marginBottom:20}}>{today}</p>
+          <div style={{background:C.card,borderRadius:20,padding:40,textAlign:"center"}}>
+            <div style={{fontSize:64}}>✅</div>
+            <p style={{fontWeight:800,fontSize:22,marginTop:12}}>Session Complete!</p>
+            <p style={{color:C.muted,fontSize:14,marginTop:4}}>Rest well. See you next time.</p>
+          </div>
+          {isThur&&<button onClick={onWeightLog} style={{width:"100%",marginTop:14,padding:"15px",borderRadius:16,border:"none",background:C.red,color:"#fff",fontWeight:700,fontSize:16,cursor:"pointer"}}>⚖️ Log Thursday Weight</button>}
+        </div>
+      );
+    
+      if(step==="whoop") return(
+        <div style={{padding:20}}>
+          <p style={{fontSize:28,fontWeight:800,marginBottom:2}}>Hey Nissim 👋</p>
+          <p style={{color:C.muted,fontSize:13,marginBottom:20}}>{today}</p>
+          {isThur&&<button onClick={onWeightLog} style={{width:"100%",marginBottom:14,padding:"13px",borderRadius:14,border:`1.5px dashed ${C.red}`,background:"#FEF2F2",color:C.red,fontWeight:700,cursor:"pointer",fontSize:14}}>⚖️ It's Thursday — Log your weight first!</button>}
+          <div style={{background:C.card,borderRadius:20,padding:22}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+              <span style={{fontSize:28}}>⌚</span>
+              <div><p style={{fontWeight:700,fontSize:16,margin:0}}>Whoop Check-in</p>
+              <p style={{color:C.muted,fontSize:12,margin:0}}>Open Whoop → Today tab</p></div>
+            </div>
+            {[["r","💚","Recovery","0–100","%"],["h","💗","HRV","e.g. 65","ms"],["s","🔥","Strain","0–21",""],["sl","😴","Sleep","%","%"]].map(([key,ico,lbl,ph,unit])=>(
+              <div key={key} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <span style={{width:24,textAlign:"center"}}>{ico}</span>
+                <span style={{width:70,fontSize:13,fontWeight:600}}>{lbl}</span>
+                <input type="number" placeholder={ph} value={whoopIn[key]} onChange={e=>setWhoopIn(p=>({...p,[key]:e.target.value}))}
+                  style={{flex:1,padding:"10px 12px",borderRadius:10,border:`1.5px solid ${C.border}`,fontSize:15,outline:"none"}}/>
+                {unit&&<span style={{color:C.muted,fontSize:12,width:22}}>{unit}</span>}
+              </div>
+            ))}
+            <div style={{marginTop:14,borderTop:`1px solid ${C.bg}`,paddingTop:14}}>
+              <label style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:8}}>🤖 How are you feeling today?</label>
+              <textarea placeholder="e.g. feeling good, knees a bit sore, tired..." value={feeling}
+                onChange={e=>setFeeling(e.target.value)} rows={2}
+                style={{width:"100%",padding:"11px 14px",borderRadius:12,border:`1.5px solid ${C.border}`,fontSize:14,outline:"none",resize:"none",boxSizing:"border-box",fontFamily:"inherit",lineHeight:1.5}}/>
+              <label style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,display:"block",marginTop:12,marginBottom:8}}>🍽️ What did you eat today?</label>
+              <textarea placeholder="e.g. light breakfast, no lunch yet, big dinner planned..." value={food}
+                onChange={e=>setFood(e.target.value)} rows={2}
+                style={{width:"100%",padding:"11px 14px",borderRadius:12,border:`1.5px solid ${C.border}`,fontSize:14,outline:"none",resize:"none",boxSizing:"border-box",fontFamily:"inherit",lineHeight:1.5}}/>
+              <label style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,display:"block",marginTop:12,marginBottom:8}}>😶 How full do you feel? <span style={{color:fullness?C.red:C.muted,fontWeight:900}}>{fullness?`${fullness}/10`:""}</span></label>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {[1,2,3,4,5,6,7,8,9,10].map(n=>(
+                  <button key={n} onClick={()=>setFullness(String(n))}
+                    style={{flex:1,minWidth:28,padding:"8px 2px",borderRadius:10,border:fullness===String(n)?"none":`1.5px solid ${C.border}`,background:fullness===String(n)?(n<=3?C.green:n<=6?C.orange:C.red):"none",color:fullness===String(n)?"#fff":C.text,fontWeight:700,fontSize:13,cursor:"pointer"}}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <p style={{fontSize:10,color:C.muted,marginTop:5}}>1 = empty · 10 = very full / constipated</p>
+              <p style={{fontSize:11,color:C.muted,marginTop:8}}>Optional — powers AI recommendation</p>
+            </div>
+            <Row style={{marginTop:14}}>
+              <GhostBtn label="Skip" onClick={()=>setStep("mods")}/>
+              <SolidBtn label={feeling.trim().length>3?"Get AI Rec →":"Next →"} onClick={submitWhoop}/>
+            </Row>
+          </div>
+        </div>
+      );
+    
+      if(step==="ai_rec") return(
+        <div style={{padding:20}}>
+          <p style={{fontSize:24,fontWeight:800,marginBottom:4}}>AI Recommendation</p>
+          <p style={{color:C.muted,fontSize:13,marginBottom:20}}>Based on your check-in today</p>
+          <div style={{background:C.card,borderRadius:20,padding:22,marginBottom:16}}>
+            <div style={{background:"#F0F4FF",borderRadius:12,padding:"13px 16px",marginBottom:16}}>
+              <p style={{fontSize:11,color:C.muted,margin:"0 0 4px",fontWeight:600,textTransform:"uppercase",letterSpacing:0.4}}>You said</p>
+              <p style={{fontSize:14,color:C.text,fontStyle:"italic",margin:0}}>"{feeling}"</p>
+            </div>
+            {aiRecLoading?<div style={{textAlign:"center",padding:"28px 0"}}>
+              <p style={{fontSize:36,margin:"0 0 10px"}}>🤖</p>
+              <p style={{color:C.muted,fontSize:14}}>Thinking...</p></div>
+              :<div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <span style={{fontSize:22,flexShrink:0,marginTop:2}}>🤖</span>
+                <p style={{fontSize:15,color:C.text,lineHeight:1.65,margin:0}}>{aiRec}</p>
+              </div>}
+          </div>
+          {!aiRecLoading&&(
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setStep("whoop")} style={{padding:"13px 16px",borderRadius:14,border:`1.5px solid ${C.border}`,background:"none",color:C.muted,fontWeight:600,fontSize:14,cursor:"pointer"}}>← Back</button>
+              <button onClick={()=>setStep("mods")} style={{flex:1,padding:"13px",borderRadius:14,border:"none",background:C.red,color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>Continue →</button>
+            </div>
+          )}
+        </div>
+      );
+    
+      if(step==="mods") return(
+        <div style={{padding:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+            <button onClick={()=>setStep(aiRec?"ai_rec":"whoop")} style={{background:"none",border:`1.5px solid ${C.border}`,borderRadius:12,padding:"7px 14px",fontWeight:600,fontSize:13,color:C.muted,cursor:"pointer"}}>← Back</button>
+            <div>
+              <p style={{fontSize:22,fontWeight:800,margin:0}}>Choose Modules</p>
+              <p style={{color:C.muted,fontSize:12,margin:0}}>Pick exactly 2 · 30 min each</p>
+            </div>
+          </div>
+          {aiRecMods.length>0&&(
+            <div style={{background:"#F0FDF4",border:"1.5px solid #86EFAC",borderRadius:12,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:16}}>🤖</span>
+              <p style={{fontSize:12,color:"#166534",fontWeight:600,margin:0}}>AI suggests: <strong>{aiRecMods.map(id=>MODS[id]?.name).join(" + ")}</strong>{aiRecDiff?` at ${aiRecDiff.charAt(0).toUpperCase()+aiRecDiff.slice(1)}`:""}</p>
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
+            {Object.entries(MODS).map(([id,m])=>{
+              const sel=selMods.includes(id);
+              const isAiRec=aiRecMods.includes(id);
+              const atMax=selMods.length>=2&&!sel;
+              return(<button key={id} onClick={()=>{
+                if(atMax) return;
+                setSelMods(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+              }}
+                style={{
+                  background:sel?m.color:isAiRec?"#F0FDF4":C.card,
+                  border:sel?"none":isAiRec?"2px solid #86EFAC":`2px solid ${C.border}`,
+                  borderRadius:18,padding:"22px 12px",cursor:atMax?"not-allowed":"pointer",
+                  textAlign:"center",opacity:atMax?0.4:1,transition:"opacity 0.2s"
+                }}>
+                <div style={{fontSize:34}}>{m.icon}</div>
+                <div style={{fontWeight:700,fontSize:15,color:sel?"#fff":isAiRec?"#166534":C.text,marginTop:6}}>{m.name}</div>
+                <div style={{fontSize:11,color:sel?"rgba(255,255,255,0.75)":isAiRec?"#4ADE80":C.muted,marginTop:2}}>
+                  {isAiRec&&!sel?"✦ AI pick":"30 min"}
+                </div>
+              </button>);
+            })}
+          </div>
+          <div style={{background:C.card,borderRadius:16,padding:"16px 18px",marginBottom:16}}>
+            <p style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:12}}>Difficulty</p>
+            <div style={{display:"flex",gap:8}}>
+              {Object.entries(DIFFS).map(([id,d])=>{
+                const isAiDiff=aiRecDiff===id;
+                return(<button key={id} onClick={()=>setDiff(id)}
+                  style={{flex:1,padding:"10px 4px",borderRadius:12,
+                    border:diff===id?"none":isAiDiff?"1.5px solid #86EFAC":`1.5px solid ${C.border}`,
+                    background:diff===id?d.color:isAiDiff?"#F0FDF4":"none",
+                    color:diff===id?"#fff":isAiDiff?"#166534":C.text,
+                    fontWeight:diff===id?700:isAiDiff?600:500,cursor:"pointer",fontSize:13}}>
+                  <div>{d.label}</div>
+                  <div style={{fontSize:9,opacity:0.7}}>{isAiDiff&&diff!==id?"✦ AI":""+d.pct+"%"}</div>
+                </button>);
+              })}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>setStep(aiRec?"ai_rec":"whoop")} style={{padding:"13px 16px",borderRadius:14,border:`1.5px solid ${C.border}`,background:"none",color:C.muted,fontWeight:600,fontSize:14,cursor:"pointer"}}>← Back</button>
+            <button onClick={()=>setStep("session")} disabled={selMods.length!==2}
+              style={{flex:1,padding:"16px",borderRadius:16,border:"none",background:selMods.length!==2?C.border:C.red,color:"#fff",fontWeight:700,fontSize:16,cursor:selMods.length!==2?"not-allowed":"pointer"}}>
+              {selMods.length===0?"Select 2 modules":selMods.length===1?"Select 1 more module":`Start (${selMods.reduce((a,m)=>a+MODS[m].dur,0)} min) →`}
+            </button>
+          </div>
+        </div>
+      );
+    
+      return(
+        <div style={{padding:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+              <button onClick={()=>setStep("mods")} style={{background:"none",border:`1.5px solid ${C.border}`,borderRadius:12,padding:"6px 12px",fontWeight:600,fontSize:12,color:C.muted,cursor:"pointer",marginTop:2}}>← Back</button>
+              <div>
+                <p style={{fontSize:22,fontWeight:800,margin:0}}>Today's Session</p>
+                <p style={{fontSize:12,color:C.muted,margin:0}}>{selMods.map(m=>MODS[m].name).join(" · ")} · {selMods.reduce((a,m)=>a+MODS[m].dur,0)} min</p>
+              </div>
+            </div>
+            <div style={{background:DIFFS[diff].bg,borderRadius:10,padding:"5px 12px"}}>
+              <span style={{color:DIFFS[diff].color,fontWeight:700,fontSize:13}}>{DIFFS[diff].label}</span>
+            </div>
+          </div>
+          {totalN>0&&(<div style={{background:C.border,borderRadius:100,height:5,marginBottom:18}}>
+            <div style={{width:`${(doneN/totalN)*100}%`,height:"100%",background:C.green,borderRadius:100,transition:"width 0.3s"}}/>
+          </div>)}
+          {selMods.map(mid=>{
+            const m=MODS[mid];
+            // Treadmill: show interval blocks
+            if(mid==="treadmill") {
+              const intervals=m.intervals[diff];
+              const k="treadmill_walk", st=exSt["treadmill_walk"]||"none";
+              return(<div key={mid} style={{background:C.card,borderRadius:18,marginBottom:14,overflow:"hidden"}}>
+                <div style={{background:m.color,padding:"13px 18px",display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:22}}>{m.icon}</span>
+                  <span style={{fontWeight:700,fontSize:17,color:"#fff"}}>{m.name}</span>
+                  <span style={{marginLeft:"auto",fontSize:11,color:"rgba(255,255,255,0.8)"}}>30 min</span>
+                </div>
+                <div style={{padding:"12px 18px 4px"}}>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+                    {intervals.map((iv,i)=>(
+                      <div key={i} style={{background:i===0||i===intervals.length-1?C.bg:"#DBEAFE",borderRadius:10,padding:"7px 12px",flex:1,minWidth:60,textAlign:"center"}}>
+                        <p style={{fontSize:11,fontWeight:700,color:i===0||i===intervals.length-1?C.muted:C.blue,margin:0}}>{iv.name}</p>
+                        <p style={{fontSize:13,fontWeight:800,color:C.text,margin:"2px 0 0"}}>{iv.kmh} km/h</p>
+                        <p style={{fontSize:10,color:C.muted,margin:0}}>{iv.mins} min</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={()=>tapEx("treadmill","walk")}
+                  style={{width:"100%",background:st==="done"?"#F0FDF4":st==="hard"?"#FFF7ED":"none",border:"none",borderTop:`1px solid ${C.bg}`,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",border:st==="none"?`2px solid ${C.border}`:"none",background:st==="done"?C.green:st==="hard"?C.orange:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {st==="done"&&<span style={{color:"#fff",fontSize:16,fontWeight:700}}>✓</span>}
+                    {st==="hard"&&<span style={{color:"#fff",fontSize:14}}>⊘</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <p style={{margin:0,fontWeight:600,fontSize:14}}>Complete Treadmill</p>
+                    <p style={{margin:0,fontSize:11,color:C.muted}}>30 min · mark when done</p>
+                  </div>
+                  {st==="done"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>Done</span>}
+                  {st==="hard"&&<span style={{fontSize:12,color:C.orange,fontWeight:700}}>Too Hard</span>}
+                </button>
+              </div>);
+            }
+            // Swimming: show proper set counts
+            if(mid==="swimming") {
+              const swimSets=m.swimSets;
+              return(<div key={mid} style={{background:C.card,borderRadius:18,marginBottom:14,overflow:"hidden"}}>
+                <div style={{background:m.color,padding:"13px 18px",display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:22}}>{m.icon}</span>
+                  <span style={{fontWeight:700,fontSize:17,color:"#fff"}}>{m.name}</span>
+                  <span style={{marginLeft:"auto",fontSize:11,color:"rgba(255,255,255,0.8)"}}>30 min</span>
+                </div>
+                {m.exs.map((ex,i)=>{
+                  const k=`swimming_${ex.id}`,st=exSt[k]||"none";
+                  const s=swimSets[ex.id][diff];
+                  const setLabel=`${s.reps}×${s.dist}m`;
+                  const totalM=s.reps*s.dist;
+                  return(<button key={ex.id} onClick={()=>tapEx("swimming",ex.id)}
+                    style={{width:"100%",background:st==="done"?"#F0FDF4":st==="hard"?"#FFF7ED":"none",border:"none",borderBottom:i<m.exs.length-1?`1px solid ${C.bg}`:"none",padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+                    <div style={{width:32,height:32,borderRadius:"50%",border:st==="none"?`2px solid ${C.border}`:"none",background:st==="done"?C.green:st==="hard"?C.orange:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {st==="done"&&<span style={{color:"#fff",fontSize:16,fontWeight:700}}>✓</span>}
+                      {st==="hard"&&<span style={{color:"#fff",fontSize:14}}>⊘</span>}
+                    </div>
+                    <div style={{flex:1}}>
+                      <p style={{margin:0,fontWeight:600,fontSize:14}}>{ex.name}</p>
+                      <p style={{margin:0,fontSize:11,color:C.muted}}>{ex.sub} · {setLabel} = {totalM}m</p>
+                    </div>
+                    {st==="done"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>Done</span>}
+                    {st==="hard"&&<span style={{fontSize:12,color:C.orange,fontWeight:700}}>Too Hard</span>}
+                  </button>);
+                })}
+              </div>);
+            }
+            // E-Bike: interval blocks like treadmill
+            if(mid==="ebike") {
+              const intervals=m.intervals[diff];
+              const st=exSt["ebike_ride"]||"none";
+              return(<div key={mid} style={{background:C.card,borderRadius:18,marginBottom:14,overflow:"hidden"}}>
+                <div style={{background:m.color,padding:"13px 18px",display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:22}}>{m.icon}</span>
+                  <span style={{fontWeight:700,fontSize:17,color:"#fff"}}>{m.name}</span>
+                  <span style={{marginLeft:"auto",fontSize:11,color:"rgba(255,255,255,0.8)"}}>30 min</span>
+                </div>
+                <div style={{padding:"12px 18px 4px"}}>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+                    {intervals.map((iv,i)=>(
+                      <div key={i} style={{background:i===0||i===intervals.length-1?C.bg:"#FEF3C7",borderRadius:10,padding:"7px 10px",flex:1,minWidth:54,textAlign:"center"}}>
+                        <p style={{fontSize:10,fontWeight:700,color:i===0||i===intervals.length-1?C.muted:C.orange,margin:0}}>{iv.name}</p>
+                        <p style={{fontSize:13,fontWeight:800,color:C.text,margin:"2px 0 0"}}>{iv.kmh} km/h</p>
+                        <p style={{fontSize:10,color:C.muted,margin:0}}>L{iv.lvl} · {iv.mins}m</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={()=>tapEx("ebike","ride")}
+                  style={{width:"100%",background:st==="done"?"#F0FDF4":st==="hard"?"#FFF7ED":"none",border:"none",borderTop:`1px solid ${C.bg}`,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",border:st==="none"?`2px solid ${C.border}`:"none",background:st==="done"?C.green:st==="hard"?C.orange:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {st==="done"&&<span style={{color:"#fff",fontSize:16,fontWeight:700}}>✓</span>}
+                    {st==="hard"&&<span style={{color:"#fff",fontSize:14}}>⊘</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <p style={{margin:0,fontWeight:600,fontSize:14}}>Complete E-Bike</p>
+                    <p style={{margin:0,fontSize:11,color:C.muted}}>30 min · mark when done</p>
+                  </div>
+                  {st==="done"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>Done</span>}
+                  {st==="hard"&&<span style={{fontSize:12,color:C.orange,fontWeight:700}}>Too Hard</span>}
+                </button>
+              </div>);
+            }
+    
+            // Default (Gym only)
+            return(<div key={mid} style={{background:C.card,borderRadius:18,marginBottom:14,overflow:"hidden"}}>
+              <div style={{background:m.color,padding:"13px 18px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22}}>{m.icon}</span>
+                <span style={{fontWeight:700,fontSize:17,color:"#fff"}}>{m.name}</span>
+                <span style={{marginLeft:"auto",fontSize:11,color:"rgba(255,255,255,0.8)"}}>30 min</span>
+              </div>
+              {m.exs.map((ex,i)=>{
+                const k=`${mid}_${ex.id}`,st=exSt[k]||"none";
+                const sv=ex.unit==="kg"?ds(ex.base,diff):Math.round(ds(ex.base,diff)*10)/10;
+                return(<button key={ex.id} onClick={()=>tapEx(mid,ex.id)}
+                  style={{width:"100%",background:st==="done"?"#F0FDF4":st==="hard"?"#FFF7ED":"none",border:"none",borderBottom:i<m.exs.length-1?`1px solid ${C.bg}`:"none",padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",border:st==="none"?`2px solid ${C.border}`:"none",background:st==="done"?C.green:st==="hard"?C.orange:"none",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {st==="done"&&<span style={{color:"#fff",fontSize:16,fontWeight:700}}>✓</span>}
+                    {st==="hard"&&<span style={{color:"#fff",fontSize:14}}>⊘</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <p style={{margin:0,fontWeight:600,fontSize:14}}>{ex.name}</p>
+                    <p style={{margin:0,fontSize:11,color:C.muted}}>{ex.sub||ex.sets} · {sv} {ex.unit}</p>
+                  </div>
+                  {st==="done"&&<span style={{fontSize:12,color:C.green,fontWeight:700}}>Done</span>}
+                  {st==="hard"&&<span style={{fontSize:12,color:C.orange,fontWeight:700}}>Too Hard</span>}
+                </button>);
+              })}
+            </div>);
+          })}
+          <button onClick={onSubmit} style={{width:"100%",padding:"18px",borderRadius:18,border:"none",background:C.red,color:"#fff",fontWeight:800,fontSize:18,cursor:"pointer",letterSpacing:0.5,marginTop:4}}>SUBMIT</button>
+          {doneN<totalN&&<p style={{textAlign:"center",fontSize:12,color:C.muted,marginTop:8}}>{doneN} of {totalN} exercises marked</p>}
+        </div>
+      );
+    }
+    
+    // ─── WEEK VIEW ───
+    function WeekView({sessions,onDelete}) {
+      const days=last7();
+      const [summary,setSummary]=useState(null);
+      const [summaryLoading,setSummaryLoading]=useState(false);
+      const [showSummary,setShowSummary]=useState(false);
+    
+      const byDate=useMemo(()=>{
+        const m={};
+        sessions.filter(s=>s.submitted).forEach(s=>{ if(!m[s.date]) m[s.date]=[]; m[s.date].push(s); });
+        return m;
+      },[sessions]);
+    
+      const weekSessions=days.flatMap(d=>byDate[d]||[]);
+      const best=useMemo(()=>{
+        if(!weekSessions.length) return null;
+        return weekSessions.reduce((a,b)=>(b.scores?.finalScore||0)>(a.scores?.finalScore||0)?b:a);
+      },[weekSessions]);
+    
+      async function loadSummary() {
+        setSummaryLoading(true); setShowSummary(true);
+        const modC={};
+        weekSessions.forEach(s=>s.modules?.forEach(m=>{ modC[m]=(modC[m]||0)+1; }));
+        const mods=Object.entries(modC).map(([m,n])=>`${MODS[m]?.name}×${n}`).join(", ")||"none";
+        const avg=weekSessions.length>0?Math.round(weekSessions.reduce((a,s)=>a+(s.scores?.finalScore||0),0)/weekSessions.length):0;
+        const flags=[...new Set(weekSessions.flatMap(s=>Object.entries(s.exercises||{}).filter(([,v])=>v==="hard").map(([k])=>{
+          const [mid,...rest]=k.split("_"); return MODS[mid]?.exs.find(e=>e.id===rest.join("_"))?.name||k;
+        })))];
+        const prompt=`Nissim's week: ${weekSessions.length} sessions, ${mods||"none"}, avg score ${avg}/100, flagged: ${flags.join(",")||"none"}, recovery: ${weekSessions.map(s=>s.whoop?.recovery).filter(Boolean).join(",")||"unknown"}.
+    3 sentences max — what went well, what to watch, what to focus on next week. Talk like a coach, not a report.`;
+        const res=await callAI(prompt); setSummary(res); setSummaryLoading(false);
+      }
+    
+      return(
+        <div style={{padding:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+            <div><p style={{fontSize:28,fontWeight:800,margin:0}}>This Week</p>
+            <p style={{color:C.muted,fontSize:13,margin:0}}>{weekSessions.length} session{weekSessions.length!==1?"s":""}</p></div>
+            <button onClick={loadSummary} style={{background:C.text,color:"#fff",border:"none",borderRadius:12,padding:"8px 14px",fontWeight:700,fontSize:13,cursor:"pointer"}}>🤖 AI Summary</button>
+          </div>
+          <div style={{background:C.card,borderRadius:18,padding:18,marginBottom:14}}>
+            <p style={{fontWeight:700,fontSize:12,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:14}}>7-Day Activity</p>
+            <div style={{display:"flex",gap:6}}>
+              {days.map(d=>{
+                const ds2=byDate[d]||[], isToday=d===todayStr();
+                const mods=[...new Set(ds2.flatMap(s=>s.modules||[]))];
+                return(<div key={d} style={{flex:1,textAlign:"center"}}>
+                  <p style={{fontSize:10,color:isToday?C.red:C.muted,fontWeight:isToday?700:400,marginBottom:5}}>{fmtDay(d)}</p>
+                  <div style={{height:44,borderRadius:10,background:ds2.length>0?"transparent":C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,border:isToday?`2px solid ${C.red}`:"none"}}>
+                    {mods.length===0?<div style={{width:8,height:8,borderRadius:"50%",background:C.border}}/>
+                      :mods.slice(0,2).map(mid=><div key={mid} style={{width:10,height:10,borderRadius:"50%",background:MODS[mid]?.color||C.muted}}/>)}
+                  </div>
+                  <p style={{fontSize:9,color:C.muted,marginTop:4}}>{ds2.length>0?ds2[0].modules?.map(m=>MODS[m]?.icon).join(""):"·"}</p>
+                </div>);
+              })}
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:14,flexWrap:"wrap"}}>
+              {Object.entries(MODS).map(([id,m])=>(
+                <div key={id} style={{display:"flex",alignItems:"center",gap:5}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:m.color}}/>
+                  <span style={{fontSize:11,color:C.muted}}>{m.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {best&&(
+            <div style={{background:"linear-gradient(135deg,#1C1C1E,#3A3A3C)",borderRadius:18,padding:"18px 20px",marginBottom:14}}>
+              <p style={{fontWeight:700,fontSize:12,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>🏆 Best of the Week</p>
+              <p style={{fontWeight:800,fontSize:18,color:"#fff",marginBottom:4}}>{best.modules?.map(m=>MODS[m]?.name).join(" + ")}</p>
+              <p style={{fontSize:13,color:"rgba(255,255,255,0.65)",margin:0}}>
+                {fmtDate(best.date)} · {DIFFS[best.difficulty]?.label}
+                {best.scores&&<span style={{color:C.green}}> · Score {best.scores.finalScore}</span>}
+                {best.whoop?.recovery&&<span> · 💚 {best.whoop.recovery}%</span>}
+              </p>
+            </div>
+          )}
+          {days.filter(d=>byDate[d]).reverse().map(d=>(
+            byDate[d].map((sess,i)=>{
+              const doneEx=Object.values(sess.exercises||{}).filter(v=>v==="done").length;
+              const hardEx=Object.values(sess.exercises||{}).filter(v=>v==="hard").length;
+              const totEx=Object.values(sess.exercises||{}).length;
+              return(<div key={`${d}-${i}`} style={{background:C.card,borderRadius:18,padding:"18px 20px",marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div style={{flex:1}}>
+                    <p style={{fontWeight:700,fontSize:15,margin:0}}>{sess.modules?.map(m=>MODS[m]?.icon+" "+MODS[m]?.name).join(" · ")}</p>
+                    <p style={{color:C.muted,fontSize:12,marginTop:2}}>{fmtDate(d)} · {DIFFS[sess.difficulty]?.label}</p>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    {sess.scores&&<div style={{background:C.bg,borderRadius:10,padding:"4px 10px"}}><span style={{fontWeight:800,fontSize:14}}>{sess.scores.finalScore}</span></div>}
+                    <button onClick={()=>onDelete(sess.id)} style={{background:"none",border:"none",cursor:"pointer",padding:4,fontSize:18,color:C.muted}}>🗑️</button>
+                  </div>
+                </div>
+                {sess.whoop?.recovery&&(
+                  <div style={{display:"flex",gap:12,marginBottom:10,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,color:C.muted}}>💚 <strong style={{color:whoopInfo(sess.whoop.recovery).color}}>{sess.whoop.recovery}%</strong></span>
+                    {sess.whoop.hrv&&<span style={{fontSize:12,color:C.muted}}>💗 <strong>{sess.whoop.hrv}ms</strong></span>}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {doneEx>0&&<span style={{fontSize:12,background:"#DCFCE7",color:C.green,borderRadius:8,padding:"3px 10px",fontWeight:600}}>✓ {doneEx}/{totEx}</span>}
+                  {hardEx>0&&<span style={{fontSize:12,background:"#FFF7ED",color:C.orange,borderRadius:8,padding:"3px 10px",fontWeight:600}}>⊘ {hardEx} hard</span>}
+                </div>
+              </div>);
+            })
+          ))}
+          {weekSessions.length===0&&(
+            <div style={{background:C.card,borderRadius:18,padding:40,textAlign:"center"}}>
+              <div style={{fontSize:48}}>🗓️</div>
+              <p style={{fontWeight:700,fontSize:16,marginTop:12}}>No sessions yet this week</p>
+              <p style={{color:C.muted,fontSize:13}}>Head to Today to get started!</p>
+            </div>
+          )}
+          {showSummary&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+              <div style={{background:C.card,borderRadius:"24px 24px 0 0",padding:"28px 24px",width:"100%",maxWidth:430,boxSizing:"border-box"}}>
+                <p style={{fontWeight:800,fontSize:18,marginBottom:4}}>🤖 AI Weekly Summary</p>
+                <p style={{color:C.muted,fontSize:12,marginBottom:16}}>{weekSessions.length} sessions this week</p>
+                {summaryLoading?<div style={{textAlign:"center",padding:"20px 0"}}><p style={{color:C.muted}}>Analyzing your week...</p></div>
+                  :<p style={{fontSize:15,color:C.text,lineHeight:1.7,marginBottom:20}}>{summary}</p>}
+                {!summaryLoading&&<SolidBtn label="Close" onClick={()=>setShowSummary(false)} full/>}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    // ─── MONTHLY VIEW ───
+    function MonthlyView({sessions,perfs}) {
+      const thisMonth=new Date().toISOString().slice(0,7), lastM=prevMonth();
+      const thisMSess=sessions.filter(s=>s.submitted&&s.date.startsWith(thisMonth));
+      const lastMSess=sessions.filter(s=>s.submitted&&s.date.startsWith(lastM));
+    
+      const streak=useMemo(()=>{
+        const bw={};
+        sessions.filter(s=>s.submitted).forEach(s=>{ const wk=weekStart(s.date); bw[wk]=(bw[wk]||0)+1; });
+        const full=new Set(Object.entries(bw).filter(([,n])=>n>=2).map(([w])=>w));
+        let cur=0, d=new Date(weekStart(todayStr())+"T12:00");
+        while(full.has(d.toISOString().slice(0,10))){ cur++; d.setDate(d.getDate()-7); }
+        let longest=0,s2=0;
+        [...full].sort().forEach((w,i,arr)=>{
+          if(i===0){s2=1;}else{ const p=new Date(arr[i-1]+"T12:00"); p.setDate(p.getDate()+7); s2=p.toISOString().slice(0,10)===w?s2+1:1; }
+          longest=Math.max(longest,s2);
+        });
+        return {current:cur,longest,total:full.size};
+      },[sessions]);
+    
+      const adherenceData=useMemo(()=>{
+        const bw={};
+        sessions.filter(s=>s.submitted).forEach(s=>{ const wk=weekStart(s.date); bw[wk]=(bw[wk]||0)+1; });
+        return Object.entries(bw).sort(([a],[b])=>a.localeCompare(b)).slice(-10).map(([wk,n])=>({week:fmtDate(wk),sessions:n}));
+      },[sessions]);
+    
+      const scoreData=useMemo(()=>sessions.filter(s=>s.submitted&&s.scores).slice(-15).map(s=>({
+        date:fmtDate(s.date),score:s.scores.finalScore,completion:s.scores.completionScore,effort:s.scores.effortScore
+      })),[sessions]);
+    
+      const gymPerfs=useMemo(()=>{
+        const bx={};
+        perfs.filter(p=>p.mid==="gym"&&p.weight>0).forEach(p=>{ if(!bx[p.exName]) bx[p.exName]=[]; bx[p.exName].push({date:fmtDate(p.date),weight:p.weight,dr:p.date}); });
+        Object.values(bx).forEach(a=>a.sort((x,y)=>x.dr.localeCompare(y.dr)));
+        return bx;
+      },[perfs]);
+    
+      const treadData=useMemo(()=>perfs.filter(p=>p.mid==="treadmill").sort((a,b)=>a.date.localeCompare(b.date)).map(p=>({date:fmtDate(p.date),speed:p.speed,distance:p.distance})),[perfs]);
+      const swimData=useMemo(()=>{ const bd={}; perfs.filter(p=>p.mid==="swimming").forEach(p=>{ bd[p.date]=(bd[p.date]||0)+(p.distance||0); }); return Object.entries(bd).sort().map(([d,m])=>({date:fmtDate(d),meters:m})); },[perfs]);
+      const ebikeData=useMemo(()=>perfs.filter(p=>p.mid==="ebike").sort((a,b)=>a.date.localeCompare(b.date)).map(p=>({date:fmtDate(p.date),distance:p.distance,speed:p.avgSpeed||p.speed})),[perfs]);
+      const skippedData=useMemo(()=>{
+        const c={};
+        sessions.filter(s=>s.submitted).forEach(s=>Object.entries(s.exercises||{}).forEach(([k,v])=>{
+          if(v==="hard"){ const [mid,...r]=k.split("_"); const name=MODS[mid]?.exs.find(e=>e.id===r.join("_"))?.name||k; c[name]=(c[name]||0)+1; }
+        }));
+        return Object.entries(c).sort(([,a],[,b])=>b-a).map(([name,count])=>({name:name.replace(" ⭐",""),count}));
+      },[sessions]);
+      const monthCmp=useMemo(()=>{
+        const mc=a=>{ const c={}; a.forEach(s=>s.modules?.forEach(m=>{ c[m]=(c[m]||0)+1; })); return c; };
+        const tm=mc(thisMSess),lm=mc(lastMSess);
+        return Object.keys(MODS).map(id=>({name:MODS[id].name,thisMonth:tm[id]||0,lastMonth:lm[id]||0}));
+      },[thisMSess,lastMSess]);
+    
+      const thisMonthLabel=new Date().toLocaleDateString("en-US",{month:"long"});
+      const lastMonthLabel=new Date(lastM+"-01T12:00").toLocaleDateString("en-US",{month:"short"});
+    
+      const monthScores=useMemo(()=>{
+        const scored=thisMSess.filter(s=>s.scores);
+        if(!scored.length) return {avg:null,best:null,hardCount:0,totalDiff:thisMSess.length};
+        const avg=Math.round(scored.reduce((a,s)=>a+s.scores.finalScore,0)/scored.length);
+        const best=Math.max(...scored.map(s=>s.scores.finalScore));
+        const hardCount=thisMSess.filter(s=>s.difficulty==="hard").length;
+        const normalCount=thisMSess.filter(s=>s.difficulty==="normal").length;
+        const easyCount=thisMSess.filter(s=>s.difficulty==="easy").length;
+        return {avg,best,hardCount,normalCount,easyCount,total:thisMSess.length};
+      },[thisMSess]);
+    
+      const diffLabel=useMemo(()=>{
+        if(!monthScores.total) return "—";
+        const parts=[];
+        if(monthScores.hardCount>0)   parts.push(`${monthScores.hardCount}H`);
+        if(monthScores.normalCount>0) parts.push(`${monthScores.normalCount}N`);
+        if(monthScores.easyCount>0)   parts.push(`${monthScores.easyCount}E`);
+        return parts.join(" / ") || "—";
+      },[monthScores]);
+    
+      return(
+        <div style={{padding:20}}>
+          <p style={{fontSize:28,fontWeight:800,margin:"0 0 20px"}}>{thisMonthLabel}</p>
+          <div style={{display:"flex",gap:10,marginBottom:14}}>
+            <StatPill label="Avg Score" value={monthScores.avg??"-"} sub="/100" color={monthScores.avg>=80?C.green:monthScores.avg>=55?C.orange:C.red}/>
+            <StatPill label="Best Score" value={monthScores.best??"-"} sub="/100" color={C.purple}/>
+            <StatPill label="Difficulty" value={diffLabel} color={C.blue}/>
+          </div>
+          <div style={{background:"linear-gradient(135deg,#1C1C1E,#3A3A3C)",borderRadius:18,padding:"20px 22px",marginBottom:14}}>
+            <p style={{fontWeight:700,fontSize:12,color:"rgba(255,255,255,0.45)",textTransform:"uppercase",letterSpacing:0.5,marginBottom:10}}>🔥 Streak Tracker</p>
+            <div style={{display:"flex",gap:20,alignItems:"center"}}>
+              <div style={{textAlign:"center"}}><p style={{fontSize:42,fontWeight:900,color:C.orange,margin:0,lineHeight:1}}>{streak.current}</p><p style={{fontSize:11,color:"rgba(255,255,255,0.55)",marginTop:4}}>Current streak</p></div>
+              <div style={{flex:1,height:1,background:"rgba(255,255,255,0.1)"}}/>
+              <div style={{textAlign:"center"}}><p style={{fontSize:32,fontWeight:800,color:"rgba(255,255,255,0.7)",margin:0,lineHeight:1}}>{streak.longest}</p><p style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginTop:4}}>Personal best</p></div>
+              <div style={{textAlign:"center"}}><p style={{fontSize:32,fontWeight:800,color:"rgba(255,255,255,0.7)",margin:0,lineHeight:1}}>{streak.total}</p><p style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginTop:4}}>Total full weeks</p></div>
+            </div>
+            <p style={{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:12}}>A full week = 2+ sessions</p>
+          </div>
+          <ChartCard title="📊 Session Score Trend" empty={scoreData.length<2}>
+            <ResponsiveContainer width="100%" height={150}>
+              <ComposedChart data={scoreData} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="date" tick={{fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis domain={[0,100]} tick={{fontSize:10}}/>
+                <Tooltip/>
+                <Line type="monotone" dataKey="score" stroke={C.red} strokeWidth={2.5} name="Final" dot={{r:4,fill:C.red}}/>
+                <Line type="monotone" dataKey="completion" stroke={C.green} strokeWidth={1.5} name="Completion" dot={false} strokeDasharray="4 2"/>
+                <Line type="monotone" dataKey="effort" stroke={C.orange} strokeWidth={1.5} name="Effort" dot={false} strokeDasharray="4 2"/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title="📅 Weekly Sessions" empty={adherenceData.length===0}>
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={adherenceData} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="week" tick={{fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis tick={{fontSize:10}} allowDecimals={false}/>
+                <Tooltip formatter={(v)=>[`${v} session${v!==1?"s":""}`]}/>
+                <Bar dataKey="sessions" fill={C.blue} radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title="🏋️ Gym — Weight Progression" empty={Object.keys(gymPerfs).length===0}>
+            {Object.entries(gymPerfs).map(([exName,data])=>data.length>=2&&(
+              <div key={exName} style={{marginBottom:18}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <p style={{fontWeight:600,fontSize:13,margin:0}}>{exName}</p>
+                  <span style={{fontSize:12,color:data[data.length-1].weight>data[0].weight?C.green:C.muted,fontWeight:600}}>
+                    {data[data.length-1].weight>data[0].weight?"↑":"↔"} {data[data.length-1].weight}kg
+                    {data[data.length-1].weight>data[0].weight&&<span style={{background:"#DCFCE7",color:C.green,borderRadius:6,padding:"1px 7px",marginLeft:6,fontSize:11}}>PR</span>}
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={80}>
+                  <LineChart data={data} margin={{left:-30,right:10}}>
+                    <XAxis dataKey="date" tick={{fontSize:9}} interval="preserveStartEnd"/>
+                    <YAxis tick={{fontSize:9}}/>
+                    <Tooltip formatter={(v)=>[`${v} kg`]}/>
+                    <Line type="monotone" dataKey="weight" stroke={C.purple} strokeWidth={2} dot={{r:3,fill:C.purple}}/>
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </ChartCard>
+          <ChartCard title="🚶 Treadmill" empty={treadData.length<2}>
+            <ResponsiveContainer width="100%" height={130}>
+              <ComposedChart data={treadData} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="date" tick={{fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis tick={{fontSize:10}}/>
+                <Tooltip/>
+                <Line type="monotone" dataKey="speed" stroke={C.green} strokeWidth={2} name="Speed (km/h)" dot={{r:3}}/>
+                <Bar dataKey="distance" fill="#DCFCE7" stroke={C.green} strokeWidth={1} name="Distance (km)" radius={[3,3,0,0]}/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title="🏊 Swimming" empty={swimData.length<2}>
+            <ResponsiveContainer width="100%" height={110}>
+              <BarChart data={swimData} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="date" tick={{fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis tick={{fontSize:10}}/>
+                <Tooltip formatter={(v)=>[`${v} m`]}/>
+                <Bar dataKey="meters" fill={C.blue} radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title="🚴 E-Bike" empty={ebikeData.length<2}>
+            <ResponsiveContainer width="100%" height={120}>
+              <ComposedChart data={ebikeData} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="date" tick={{fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis tick={{fontSize:10}}/>
+                <Tooltip/>
+                <Bar dataKey="distance" fill="#FEF3C7" stroke={C.orange} strokeWidth={1} name="Distance (km)" radius={[3,3,0,0]}/>
+                <Line type="monotone" dataKey="speed" stroke={C.orange} strokeWidth={2} dot={false} name="Speed (km/h)"/>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          <ChartCard title={`📊 ${thisMonthLabel} vs ${lastMonthLabel}`} empty={thisMSess.length===0&&lastMSess.length===0}>
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={monthCmp} margin={{left:-25}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="name" tick={{fontSize:10}}/>
+                <YAxis tick={{fontSize:10}} allowDecimals={false}/>
+                <Tooltip/><Legend wrapperStyle={{fontSize:11}}/>
+                <Bar dataKey="thisMonth" fill={C.red} name={thisMonthLabel} radius={[3,3,0,0]}/>
+                <Bar dataKey="lastMonth" fill={C.border} name={lastMonthLabel} radius={[3,3,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+          {skippedData.length>0&&(
+            <ChartCard title="⊘ Most Flagged Exercises">
+              {skippedData.map((item,i)=>(
+                <div key={item.name} style={{display:"flex",alignItems:"center",gap:10,marginBottom:i<skippedData.length-1?10:0}}>
+                  <div style={{width:28,height:28,borderRadius:"50%",background:C.orange,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <span style={{color:"#fff",fontWeight:700,fontSize:12}}>{i+1}</span>
+                  </div>
+                  <span style={{flex:1,fontSize:14,fontWeight:500}}>{item.name}</span>
+                  <span style={{fontSize:13,color:C.orange,fontWeight:700}}>{item.count}×</span>
+                </div>
+              ))}
+            </ChartCard>
+          )}
+          <div style={{height:20}}/>
+        </div>
+      );
+    }
+    
+    // ─── WEIGHT TAB ───
+    const GOAL_WEIGHT = 73;
+    const START_WEIGHT = 98;
+    const DOSE_COLORS = {"2.5":"#8B5CF6","5":"#3B82F6","7.5":"#E8001C","10":"#F59E0B","12.5":"#14B8A6","15":"#22C55E"};
+    
+    function WeightTab({weightLog, onLog, isThur}) {
+      const [showExport,   setShowExport]   = useState(false);
+      const [copied,       setCopied]       = useState(false);
+      const [showDoseLog,  setShowDoseLog]  = useState(false);
+      const [doseChanges,  setDoseChanges]  = useStore("nv6-dosechanges", []);
+      const [newDoseDate,  setNewDoseDate]  = useState("");
+      const [newDoseMg,    setNewDoseMg]    = useState("5");
+      
+      function saveDoseChange() {
+        if(!newDoseDate) return;
+        setDoseChanges(p=>[...p.filter(d=>d.date!==newDoseDate),{date:newDoseDate,dose:newDoseMg}].sort((a,b)=>a.date.localeCompare(b.date)));
+        setShowDoseLog(false); setNewDoseDate(""); setNewDoseMg("5");
+      }
+    
+      const sorted = useMemo(()=>[...weightLog].sort((a,b)=>a.date.localeCompare(b.date)),[weightLog]);
+      const latest  = sorted[sorted.length-1];
+      const t0      = useMemo(()=>new Date(sorted[0]?.date+"T12:00"),[sorted]);
+    
+      // Stats
+      const totalLost    = useMemo(()=>sorted.length>0 ? +(START_WEIGHT-latest.weight).toFixed(1) : 0,[sorted,latest]);
+      const totalPctLost = useMemo(()=>+(totalLost/START_WEIGHT*100).toFixed(1),[totalLost]);
+      const bmi          = useMemo(()=>+(latest?.weight/Math.pow(1.74,2)).toFixed(1),[latest]);
+      const goalRemaining= useMemo(()=>+(latest?.weight-GOAL_WEIGHT).toFixed(1),[latest]);
+    
+      // Alerts
+      const alerts = useMemo(()=>{
+        if(sorted.length<4) return {plateau:false,muscleRisk:false};
+        const last4=sorted.slice(-4);
+        const changes=[];
+        for(let i=1;i<last4.length;i++) changes.push((last4[i-1].weight-last4[i].weight)/last4[i-1].weight*100);
+        const plateau=changes.every(c=>c<0.3);
+        const last3=sorted.slice(-3);
+        let muscleRisk=false;
+        if(last3.length===3){
+          const c1=(last3[0].weight-last3[1].weight)/last3[0].weight*100;
+          const c2=(last3[1].weight-last3[2].weight)/last3[1].weight*100;
+          muscleRisk=c1>1.2&&c2>1.2;
+        }
+        return {plateau,muscleRisk};
+      },[sorted]);
+    
+      // Dose efficiency
+      const doseStats = useMemo(()=>{
+        const stats={};
+        for(let i=1;i<sorted.length;i++){
+          const dose=sorted[i].dose;
+          const pct=(sorted[i-1].weight-sorted[i].weight)/sorted[i-1].weight*100;
+          const dayGap=(new Date(sorted[i].date+"T12:00")-new Date(sorted[i-1].date+"T12:00"))/86400000;
+          const weeklyPct=dayGap>0?(pct/dayGap)*7:pct;
+          if(!stats[dose]) stats[dose]={total:0,count:0};
+          stats[dose].total+=weeklyPct; stats[dose].count++;
+        }
+        return Object.entries(stats).map(([dose,{total,count}])=>({dose,avg:+(total/count).toFixed(2)})).sort((a,b)=>parseFloat(a.dose)-parseFloat(b.dose));
+      },[sorted]);
+    
+      // Chart data — all actual dates + 8 future weekly points, projection anchored to last actual
+      const {chartPoints, goalDate} = useMemo(()=>{
+        if(sorted.length<2) return {chartPoints:[],goalDate:null};
+        const lastEntry=sorted[sorted.length-1];
+        const lastDate=new Date(lastEntry.date+"T12:00");
+        const lastWeight=lastEntry.weight;
+        const lastDx=(lastDate-t0)/86400000;
+    
+        // Regression slope from last 8 points (kg/day)
+        const reg8=sorted.slice(-8).map(p=>({x:(new Date(p.date+"T12:00")-t0)/86400000,y:p.weight}));
+        const {slope}=linearRegression(reg8);
+        // Use only negative slope (never project weight gain)
+        const projSlope=Math.min(slope,-0.01);
+    
+        // Goal date anchored to last actual weight
+        let goalDate=null;
+        if(projSlope<0){
+          const daysToGoal=(GOAL_WEIGHT-lastWeight)/projSlope;
+          const gd=new Date(lastDate.getTime()+daysToGoal*86400000);
+          if(gd>lastDate) goalDate=gd;
+        }
+    
+        // Collect ALL dates: every actual date + 8 weekly future points
+        const allDatesSet=new Set(sorted.map(p=>p.date));
+        for(let i=1;i<=8;i++){
+          const fd=new Date(lastDate); fd.setDate(fd.getDate()+i*7);
+          allDatesSet.add(fd.toISOString().slice(0,10));
+        }
+        const allDates=[...allDatesSet].sort();
+    
+        // Build actual map
+        const amap={};
+        sorted.forEach(p=>{amap[p.date]=p.weight;});
+    
+        const points=allDates.map(dateStr=>{
+          const d=new Date(dateStr+"T12:00");
+          const dx=(d-t0)/86400000;
+          const weeksFromStart=dx/7;
+          const healthy=+((START_WEIGHT*Math.pow(1-0.0075,weeksFromStart)).toFixed(1));
+          const isFuture=d>lastDate;
+          const isLastPoint=dateStr===lastEntry.date;
+          // Projection anchored to last actual weight
+          const proj=+(lastWeight+projSlope*(dx-lastDx)).toFixed(1);
+          const actual=amap[dateStr]??null;
+          return {
+            disp: fmtDate(dateStr),
+            actual,
+            healthy: healthy>GOAL_WEIGHT?+healthy.toFixed(1):null,
+            // At last actual point: set both actual and projection so lines connect
+            projection: (isFuture||isLastPoint)&&proj>GOAL_WEIGHT&&proj<START_WEIGHT?proj:null,
+            goal: GOAL_WEIGHT,
+          };
+        });
+    
+        return {chartPoints:points, goalDate};
+      },[sorted,t0]);
+    
+      // Custom tooltip
+      const CustomTooltip=({active,payload,label})=>{
+        if(!active||!payload?.length) return null;
+        const d=payload[0]?.payload;
+        return(
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",fontSize:12}}>
+            <p style={{fontWeight:700,margin:"0 0 6px"}}>{label}</p>
+            {d.actual&&<p style={{color:C.red,margin:"2px 0"}}>● Actual: <strong>{d.actual} kg</strong> <span style={{color:C.muted}}>({((START_WEIGHT-d.actual)/START_WEIGHT*100).toFixed(1)}% lost)</span></p>}
+            {d.healthy&&<p style={{color:C.green,margin:"2px 0"}}>● Healthy target: <strong>{d.healthy} kg</strong></p>}
+            {d.projection&&<p style={{color:C.blue,margin:"2px 0",fontStyle:"italic"}}>● Projection: <strong>{d.projection} kg</strong></p>}
+          </div>
+        );
+      };
+    
+      // Doctor export text
+      const exportText = useMemo(()=>{
+        const lines=[
+          "═══════════════════════════════════",
+          "  MOUNJARO JOURNEY — PROGRESS REPORT",
+          "═══════════════════════════════════",
+          `Patient: Nissim Gaz | Age: 26 | Height: 1.74m`,
+          `Generated: ${new Date().toLocaleDateString("en-US",{day:"numeric",month:"long",year:"numeric"})}`,
+          "",
+          "WEIGHT SUMMARY",
+          "───────────────────────────────────",
+          `Start weight:    ${START_WEIGHT}.0 kg (23 Oct 2025)`,
+          `Current weight:  ${latest?.weight} kg (${fmtFull(latest?.date)})`,
+          `Total lost:      ${totalLost} kg (${totalPctLost}% of body weight)`,
+          `Goal weight:     ${GOAL_WEIGHT} kg (${goalRemaining} kg remaining)`,
+          `Current BMI:     ${bmi}`,
+          goalDate?`Projected goal:  ${goalDate.toLocaleDateString("en-US",{day:"numeric",month:"long",year:"numeric"})} (at current rate)`:"",
+          "",
+          "DOSE HISTORY & EFFICIENCY",
+          "───────────────────────────────────",
+          ...doseStats.map(d=>`${d.dose} mg:  avg ${d.avg}% body weight loss/week`),
+          "Note: 7.5mg discontinued after 2 doses (GI side effects)",
+          "",
+          "WEEKLY LOG",
+          "───────────────────────────────────",
+          "Date            Weight   Dose    % Lost",
+          ...sorted.map((p,i)=>{
+            const pct=i===0?"—":((sorted[i-1].weight-p.weight)/sorted[i-1].weight*100).toFixed(2)+"%/wk";
+            return `${fmtFull(p.date).padEnd(16)}${p.weight} kg   ${p.dose} mg   ${pct}`;
+          }),
+          "",
+          "═══════════════════════════════════",
+          "This report is for informational use only.",
+          "Please consult your doctor for medical decisions.",
+          "═══════════════════════════════════",
+        ].filter(l=>l!==undefined);
+        return lines.join("\n");
+      },[sorted,latest,totalLost,totalPctLost,bmi,goalRemaining,goalDate,doseStats]);
+    
+      function copyExport() {
+        navigator.clipboard?.writeText(exportText).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
+      }
+    
+      const todayLogged=sorted.some(p=>p.date===todayStr());
+    
+      return(
+        <div style={{padding:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+            <div><p style={{fontSize:28,fontWeight:800,margin:0}}>Weight</p>
+            <p style={{color:C.muted,fontSize:13,margin:0}}>Mounjaro Journey</p></div>
+              <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setShowDoseLog(true)} style={{background:"#EFF6FF",color:C.blue,border:"none",borderRadius:12,padding:"8px 12px",fontWeight:700,fontSize:12,cursor:"pointer"}}>💊 Dose</button>
+              <button onClick={()=>setShowExport(true)} style={{background:C.text,color:"#fff",border:"none",borderRadius:12,padding:"8px 14px",fontWeight:700,fontSize:12,cursor:"pointer"}}>📋 Export</button>
+            </div>
+          </div>
+    
+          {isThur&&!todayLogged&&(
+            <button onClick={onLog} style={{width:"100%",marginBottom:14,padding:"14px",borderRadius:14,border:"none",background:C.red,color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"}}>
+              ⚖️ Thursday — Log this week's weight!
+            </button>
+          )}
+          {isThur&&todayLogged&&(
+            <div style={{background:"#DCFCE7",borderRadius:14,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:20}}>✅</span>
+              <p style={{fontWeight:600,fontSize:14,color:C.green,margin:0}}>This week's weight logged</p>
+            </div>
+          )}
+    
+          {alerts.muscleRisk&&(
+            <div style={{background:"#FEF3C7",border:`1.5px solid ${C.orange}`,borderRadius:14,padding:"12px 16px",marginBottom:12,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:20}}>⚠️</span>
+              <div><p style={{fontWeight:700,fontSize:13,color:C.orange,margin:0}}>Rapid Loss Alert</p>
+              <p style={{fontSize:12,color:C.text,margin:"3px 0 0"}}>2+ consecutive weeks exceeding 1.2% body weight loss. Risk of muscle loss — ensure adequate protein intake. Discuss with your doctor.</p></div>
+            </div>
+          )}
+          {alerts.plateau&&(
+            <div style={{background:"#EFF6FF",border:`1.5px solid ${C.blue}`,borderRadius:14,padding:"12px 16px",marginBottom:12,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <span style={{fontSize:20}}>📉</span>
+              <div><p style={{fontWeight:700,fontSize:13,color:C.blue,margin:0}}>Plateau Detected</p>
+              <p style={{fontSize:12,color:C.text,margin:"3px 0 0"}}>Less than 0.3% loss/week for 3+ weeks. Consider discussing dose adjustment with your doctor.</p></div>
+            </div>
+          )}
+    
+          {/* Stats */}
+          <div style={{display:"flex",gap:10,marginBottom:10}}>
+            <StatPill label="Current" value={`${latest?.weight}`} sub="kg" color={C.red}/>
+            <StatPill label="Total Lost" value={`−${totalLost}`} sub="kg" color={C.green}/>
+            <StatPill label="% Lost" value={`${totalPctLost}%`} color={C.green}/>
+            <StatPill label="BMI" value={bmi} color={bmi<25?C.green:C.orange}/>
+          </div>
+          <div style={{display:"flex",gap:10,marginBottom:14}}>
+            <StatPill label="Goal Remaining" value={`${goalRemaining}`} sub="kg to go" color={C.blue}/>
+            {goalDate&&<div style={{flex:2,background:C.card,borderRadius:16,padding:"14px 12px",textAlign:"center"}}>
+              <p style={{fontSize:13,fontWeight:800,color:C.purple,margin:0}}>🎯 {goalDate.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</p>
+              <p style={{fontSize:10,color:C.muted,marginTop:2}}>Projected goal date</p>
+              <p style={{fontSize:9,color:C.muted,marginTop:1}}>Based on last 8 weeks @ {latest?.dose}mg</p>
+            </div>}
+          </div>
+    
+          {/* Main chart */}
+          <div style={{background:C.card,borderRadius:18,padding:"18px 12px 14px",marginBottom:14}}>
+            <p style={{fontWeight:700,fontSize:15,margin:"0 0 6px 6px"}}>Weight Trend</p>
+            <div style={{display:"flex",gap:16,marginBottom:14,marginLeft:6,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:16,height:3,background:C.red,borderRadius:2}}/><span style={{fontSize:11,color:C.muted}}>Actual</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:16,height:3,background:C.green,borderRadius:2}}/><span style={{fontSize:11,color:C.muted}}>Healthy curve (0.75%/wk)</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:16,height:2,background:C.blue,borderRadius:2,borderTop:"2px dashed "+C.blue}}/><span style={{fontSize:11,color:C.muted}}>Projection (8wks)</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:16,height:2,background:C.orange,borderRadius:2,borderTop:"2px dashed "+C.orange}}/><span style={{fontSize:11,color:C.muted}}>Goal (73kg)</span></div>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={chartPoints} margin={{left:-20,right:10}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <XAxis dataKey="disp" tick={{fontSize:9}} interval={Math.floor(chartPoints.length/5)}/>
+                <YAxis domain={[70,100]} tick={{fontSize:9}}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <ReferenceLine y={GOAL_WEIGHT} stroke={C.orange} strokeDasharray="6 3" strokeWidth={1.5}/>
+                <Line type="monotone" dataKey="actual"     stroke={C.red}   strokeWidth={2.5} dot={{r:2,fill:C.red,strokeWidth:0}}     connectNulls={true}  name="Actual"/>
+                <Line type="monotone" dataKey="healthy"    stroke={C.green} strokeWidth={1.5} dot={false}                connectNulls={true}  name="Healthy"/>
+                <Line type="monotone" dataKey="projection" stroke={C.blue}  strokeWidth={2}   dot={false} strokeDasharray="6 3" connectNulls={true}  name="Projection"/>
+              </ComposedChart>
+            </ResponsiveContainer>
+    
+          </div>
+    
+    
+    
+          {/* Log new entry */}
+          {!isThur&&(
+            <button onClick={onLog} style={{width:"100%",padding:"14px",borderRadius:14,border:`1.5px dashed ${C.border}`,background:"none",color:C.muted,fontWeight:600,cursor:"pointer",fontSize:14,marginBottom:14}}>
+              + Log weight (normally on Thursdays)
+            </button>
+          )}
+    
+          <div style={{height:20}}/>
+    
+          {showDoseLog&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+              <div style={{background:C.card,borderRadius:"24px 24px 0 0",padding:"24px 20px",width:"100%",maxWidth:430,boxSizing:"border-box"}}>
+                <p style={{fontWeight:800,fontSize:17,marginBottom:4}}>💊 Log Dose Change</p>
+                <p style={{color:C.muted,fontSize:12,marginBottom:16}}>When did you start a new dose?</p>
+                <label style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",display:"block",marginBottom:6}}>Date</label>
+                <input type="date" value={newDoseDate} onChange={e=>setNewDoseDate(e.target.value)}
+                  style={{width:"100%",padding:"13px",borderRadius:12,border:`1.5px solid ${C.border}`,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,color:C.text,background:C.card}}/>
+                <label style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",display:"block",marginBottom:6}}>New Dose</label>
+                <div style={{display:"flex",gap:10,marginBottom:20}}>
+                  {["2.5","5"].map(d=>(
+                    <button key={d} onClick={()=>setNewDoseMg(d)}
+                      style={{flex:1,padding:"14px",borderRadius:14,border:newDoseMg===d?"none":`1.5px solid ${C.border}`,background:newDoseMg===d?C.blue:"none",color:newDoseMg===d?"#fff":C.text,fontWeight:700,fontSize:18,cursor:"pointer"}}>
+                      {d} mg
+                    </button>
+                  ))}
+                </div>
+                {doseChanges.length>0&&(
+                  <div style={{marginBottom:16}}>
+                    <p style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",marginBottom:8}}>Logged changes</p>
+                    {doseChanges.map(dc=>(
+                      <div key={dc.date} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.bg}`}}>
+                        <span style={{fontSize:13,color:C.text}}>{fmtFull(dc.date)}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:C.blue}}>{dc.dose} mg</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Row>
+                  <GhostBtn label="Cancel" onClick={()=>setShowDoseLog(false)}/>
+                  <SolidBtn label="Save" onClick={saveDoseChange} disabled={!newDoseDate}/>
+                </Row>
+              </div>
+            </div>
+          )}
+    
+          {showExport&&(
+            <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+              <div style={{background:C.card,borderRadius:"24px 24px 0 0",padding:"24px 20px",width:"100%",maxWidth:430,boxSizing:"border-box",maxHeight:"80vh",overflowY:"auto"}}>
+                <p style={{fontWeight:800,fontSize:17,marginBottom:4}}>📋 Doctor Visit Export</p>
+                <p style={{color:C.muted,fontSize:12,marginBottom:14}}>Copy and share with your medical team</p>
+                <pre style={{background:C.bg,borderRadius:12,padding:"14px",fontSize:10.5,lineHeight:1.7,overflowX:"auto",whiteSpace:"pre-wrap",color:C.text,marginBottom:16}}>{exportText}</pre>
+                <Row>
+                  <GhostBtn label="Close" onClick={()=>setShowExport(false)}/>
+                  <SolidBtn label={copied?"Copied ✓":"Copy to Clipboard"} onClick={copyExport} bg={copied?C.green:C.red}/>
+                </Row>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+
+    // ─── Mount ───
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>
